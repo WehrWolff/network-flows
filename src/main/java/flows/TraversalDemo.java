@@ -4,6 +4,9 @@ import org.graphstream.graph.*;
 import org.graphstream.graph.implementations.SingleGraph;
 import org.graphstream.ui.view.Viewer;
 
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,10 +16,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 
 public class TraversalDemo {
 
     static Set<Node> visited = new HashSet<>();
+    private static final Object STEP_LOCK = new Object();
+    private static volatile boolean nextStep = false;
+
+    static Viewer viewer;
 
     public static void main(String[] args) throws Exception {
 
@@ -67,18 +82,36 @@ public class TraversalDemo {
         addEdge(graph, "F", "E", 4);
         addEdge(graph, "F", "G", 13);
 
-        @SuppressWarnings("unused")
-        Viewer viewer = graph.display();
+        viewer = graph.display();
+        JComponent comp = (JComponent) viewer.getDefaultView();
 
-        Thread.sleep(1000);
+        InputMap im = comp.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = comp.getActionMap();
+
+        AbstractAction nextAction = new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                synchronized (STEP_LOCK) {
+                    nextStep = true;
+                    STEP_LOCK.notifyAll();
+                }
+            }
+        };
+
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "next");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "next");
+        am.put("next", nextAction);
 
         // edmondsKarpBFH1(graph);
         // edmondsKarpBFH2(graph);
-        edmondsKarp(graph);
-
-        Thread.sleep(1000);
-
-        dfs(graph.getNode("A"));
+        // edmondsKarp(graph);
+        //new Thread(() -> edmondsKarp(graph)).start();
+        SwingUtilities.invokeLater(() -> {
+            new Thread(() -> edmondsKarp(graph)).start();
+        });
+        
+        // Thread.sleep(1000);
+        // dfs(graph.getNode("A"));
     }
 
     static void dfs(Node node) throws Exception {
@@ -253,11 +286,97 @@ public class TraversalDemo {
         } while (true);
     }
 
+    private static void awaitContinue() {
+        synchronized (STEP_LOCK) {
+            while (!nextStep) {
+                try {
+                    STEP_LOCK.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            nextStep = false;
+        }
+    }
+
+    private static void highlightPath(Graph graph, List<Arc> chain) {
+        clearHighlight(graph);
+
+        for (Arc a : chain) {
+            Edge e = getEdge(graph, a);
+            e.setAttribute("ui.class", "active");
+            try { Thread.sleep(200); } catch (InterruptedException e1) { e1.printStackTrace(); Thread.currentThread().interrupt(); }
+        }
+    }
+
+    private static void clearHighlight(Graph graph) {
+        for (Edge e : graph.edges().toList())
+            e.removeAttribute("ui.class");
+    }
+
+    private static Set<Node> reachableVertices(Graph residual, Node source) {
+        Set<Node> visited = new HashSet<>();
+        Deque<Node> queue = new ArrayDeque<>();
+
+        // Initialize with the source node
+        visited.add(source);
+        queue.add(source);
+
+        while (!queue.isEmpty()) {
+            Node current = queue.pollFirst();
+
+            // Find all outgoing edges from the current node with capacity > 0
+            List<Edge> validEdges = residual.edges()
+                .filter(e -> e.getSourceNode() == current)
+                .filter(e -> ((int) e.getAttribute("capacity")) > 0)
+                .filter(e -> !visited.contains(e.getTargetNode()))
+                .toList();
+
+            for (Edge e : validEdges) {
+                Node neighbor = e.getTargetNode();
+                visited.add(neighbor);
+                queue.add(neighbor);
+            }
+        }
+
+        return visited;
+    }
+
+    private static void showResult(Graph graph) {
+        clearHighlight(graph);
+
+        for (Edge e : graph.edges().toList()) {
+            if ((double) e.getAttribute("flow") > 0) {
+                e.setAttribute("ui.class", "actFlow");
+                try { Thread.sleep(200); } catch (InterruptedException e1) { e1.printStackTrace(); Thread.currentThread().interrupt(); }
+            }
+        }
+
+        Graph residual = getResidualGraph(graph);
+        Set<Node> X = reachableVertices(residual, residual.getNode("A"));
+        Set<String> reachableIds = X.stream()
+            .map(Node::getId)
+            .collect(Collectors.toSet());
+
+        for (Node v : graph) {
+            if (reachableIds.contains(v.getId())) {
+                v.setAttribute("ui.class", "sourceCut");
+            } else {
+                v.setAttribute("ui.class", "sinkCut");
+            }
+        }
+    }
+
     static void edmondsKarp(Graph graph) {
+        awaitContinue();
+
         for (Edge a : graph.edges().toList()) {
             setFlow(a, 0);
             a.setAttribute("Delta", Double.POSITIVE_INFINITY);
         }
+
+        awaitContinue();
 
         Map<Node, Node> pred;
         do {
@@ -267,6 +386,9 @@ public class TraversalDemo {
                 break;
 
             List<Arc> chain = impChain(rGraph, pred);
+            highlightPath(graph, chain);
+            awaitContinue();
+
             for (Arc a : chain) {
                 Edge e = getEdge(graph, a);
                 if (isPositive(graph, a)) {
@@ -284,13 +406,19 @@ public class TraversalDemo {
                 Edge e = getEdge(graph, a);
                 if (isPositive(graph, a)) {
                     setFlow(e, (double) e.getAttribute("flow") + delta);
-                    // e.setAttribute("capacity", (int) e.getAttribute("capacity") - (int) delta);
                 } else {
                     setFlow(e, (double) e.getAttribute("flow") - delta);
-                    // e.setAttribute("capacity", (int) e.getAttribute("capacity") + (int) delta);
                 }
             }
+
+            awaitContinue();
+            clearHighlight(rGraph);
         } while (true);
+
+        showResult(graph);
+        awaitContinue();
+        viewer.close();
+        System.exit(0);
     }
 
     static Graph copyGraph(Graph original) {
@@ -469,6 +597,10 @@ public class TraversalDemo {
             text-alignment: above;
         }
 
+        edge {
+            text-size: 16px;
+        }
+
         node.current {
             fill-color: red;
         }
@@ -485,6 +617,24 @@ public class TraversalDemo {
         edge.active {
             fill-color: orange;
             size: 3px;
+        }
+
+        edge.actFlow {
+            fill-color: lightblue;
+            size: 3px;
+        }
+
+        edge.cut {
+            fill-color: red;
+            size: 5px;
+        }
+
+        node.sourceCut {
+            fill-color: gold;
+        }
+
+        node.sinkCut {
+            fill-color: lightgreen;
         }
         """;
 }
