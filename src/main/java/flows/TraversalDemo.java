@@ -306,6 +306,7 @@ public class TraversalDemo {
         for (Arc a : chain) {
             Edge e = getEdge(graph, a);
             e.setAttribute("ui.class", "active");
+            viewer.replayGraph(graph);
             try { Thread.sleep(200); } catch (InterruptedException e1) { e1.printStackTrace(); Thread.currentThread().interrupt(); }
         }
     }

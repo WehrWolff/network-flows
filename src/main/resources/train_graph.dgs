@@ -1,0 +1,23 @@
+DGS004
+train 0 19
+
+an A
+an B
+an C
+an D
+an E
+an F
+an G
+
+ae AB A > B capacity:8
+ae AC A > C capacity:9
+ae AD A > D capacity:5
+ae BE B > E capacity:6
+ae CD C > D capacity:7
+ae CF C > F capacity:5
+ae DB D > B capacity:1
+ae DE D > E capacity:2
+ae DF D > F capacity:6
+ae EG E > G capacity:11
+ae FE F > E capacity:4
+ae FG F > G capacity:13

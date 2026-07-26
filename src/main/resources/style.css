@@ -1,0 +1,51 @@
+graph {
+    fill-color: #F2F2F2;
+}
+
+node {
+    size: 25px;
+    fill-color: lightgray;
+    text-size: 18;
+    text-alignment: above;
+}
+
+edge {
+    text-size: 16px;
+    size: 2px;
+}
+
+node.current {
+    fill-color: red;
+}
+
+node.visited {
+    fill-color: green;
+}
+
+edge {
+    fill-color: gray;
+    arrow-size: 10px, 6px;
+}
+
+edge.active {
+    fill-color: orange;
+    size: 3px;
+}
+
+edge.actFlow {
+    fill-color: lightblue;
+    size: 3px;
+}
+
+edge.cut {
+    fill-color: red;
+    size: 5px;
+}
+
+node.sourceCut {
+    fill-color: gold;
+}
+
+node.sinkCut {
+    fill-color: lightgreen;
+}
